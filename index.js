@@ -1,42 +1,46 @@
-const express = require('express');
-const axios = require('axios');
-require('dotenv').config();
+const express = require("express");
+const axios = require("axios");
+const dotenv = require("dotenv");
 
+dotenv.config();
 const app = express();
-const PORT = process.env.PORT || 10000;
-
 app.use(express.json());
 
-app.post('/shopify-webhook', async (req, res) => {
+const PORT = process.env.PORT || 10000;
+
+// Main webhook endpoint
+app.post("/shopify-webhook", async (req, res) => {
   try {
-    const order = req.body;
+    const { email, line_items, total_price } = req.body;
 
-    if (order.gateway !== 'Manual') {
-      return res.status(200).send('Ignored — not a manual payment.');
-    }
+    const description = line_items
+      ?.map((item) => `${item.quantity}x ${item.title}`)
+      .join(", ") || "Shopify Order";
 
-    const paymentRequest = {
-      amount: order.total_price,
-      currency: order.currency || 'USD',
-      order_id: order.id,
-      customer_email: order.email,
-      redirect_url: `https://yourstore.com/pages/thank-you`, // <- replace this
+    const paymentPayload = {
+      amount: parseFloat(total_price),
+      email,
+      description,
+      redirect_url: "https://m21utz-zu.myshopify.com/pages/thank-you", // ✅ Replace if needed
     };
 
-    const response = await axios.post('https://checkout.stratos-pay.com/api/payment/request', paymentRequest, {
+    const response = await axios.post("https://secure.stratos-pay.com/api/pay", paymentPayload, {
       headers: {
         Authorization: `Bearer ${process.env.STRATOS_API_KEY}`,
+        "Content-Type": "application/json",
       },
     });
 
-    console.log('Stratos Response:', response.data);
-    res.status(200).send('Webhook processed.');
-  } catch (error) {
-    console.error('Webhook failed:', error.message);
-    res.status(500).send('Webhook failed.');
+    const paymentLink = response.data?.url;
+    console.log("✅ Payment Link:", paymentLink);
+
+    return res.status(200).json({ payment_link: paymentLink });
+  } catch (err) {
+    console.error("❌ Error:", err.response?.data || err.message);
+    return res.status(500).json({ error: "Failed to create StratosPay link" });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Webhook running on port ${PORT}`);
+  console.log(`✅ Webhook running on port ${PORT}`);
 });
